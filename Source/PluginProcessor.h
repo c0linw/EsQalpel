@@ -10,6 +10,7 @@
 
 #include <JuceHeader.h>
 #include "SpectrumAnalyser.h"
+#include <bitset>
 
 //==============================================================================
 /**
@@ -55,12 +56,27 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     //==============================================================================
-    SpectrumAnalyser& getInputAnalyser() noexcept { return inputAnalyser; }
+    SpectrumAnalyser& getInputAnalyser()    noexcept { return inputAnalyser; }
+    SpectrumAnalyser& getSidechainAnalyser() noexcept { return sidechainAnalyser; }
+    SpectrumAnalyser& getOutputAnalyser()   noexcept { return outputAnalyser; }
+
+    juce::AudioProcessorValueTreeState& getAPVTS() noexcept { return apvts; }
+
+    void getEQMagnitudes (float* output, int numBins, double sampleRate) const noexcept;
 
 private:
     //==============================================================================
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
     SpectrumAnalyser         inputAnalyser;
+    SpectrumAnalyser         sidechainAnalyser;
+    SpectrumAnalyser         outputAnalyser;
     juce::AudioBuffer<float> monoMixBuffer;
+
+    std::bitset<128>         activeNotes;
+    double                   currentSampleRate { 44100.0 };
+
+    juce::AudioProcessorValueTreeState apvts;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EsQalpelAudioProcessor)
 };

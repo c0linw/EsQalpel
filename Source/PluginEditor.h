@@ -11,6 +11,8 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
+class SpectrumDisplay; // Defined in PluginEditor.cpp
+
 //==============================================================================
 /**
 */
@@ -22,16 +24,35 @@ public:
     ~EsQalpelAudioProcessorEditor() override;
 
     //==============================================================================
-    void paint (juce::Graphics&) override;
-    void resized() override;
+    void paint   (juce::Graphics&) override;
+    void resized ()                override;
 
 private:
     //==============================================================================
     void timerCallback() override;
-    juce::String buildSpectraJson() const;
+    void setActiveMode (int index);
 
+    //==============================================================================
+    // One label + one slider + one APVTS attachment, grouped as a parameter strip.
+    struct Strip
+    {
+        juce::Label  label;
+        juce::Slider slider;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> att;
+    };
+
+    //==============================================================================
     EsQalpelAudioProcessor& audioProcessor;
-    std::unique_ptr<juce::WebBrowserComponent> webView;
+
+    std::unique_ptr<SpectrumDisplay> spectrumDisplay;
+
+    juce::TextButton modeButtons[4];
+    int              activeMode { 0 };
+
+    Strip autoSC[5];    // harmonics, maxDepth, threshold, attack, release
+    Strip midiSC[5];    // harmonics, maxDepth, threshold, attack, release
+    Strip naiveSC[4];   // maxDepth, threshold, attack, release
+    Strip midiOnly[4];  // harmonics, maxDepth, attack, release
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EsQalpelAudioProcessorEditor)
 };

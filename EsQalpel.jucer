@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT id="BvngBp" name="EsQalpel" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginWantsMidiIn="1"
+              pluginCharacteristicsValue="pluginWantsMidiIn">
   <MAINGROUP id="f4CbKA" name="EsQalpel">
     <GROUP id="{5145F293-8176-AFB3-CBA3-9D0CBFE6FCB5}" name="Source">
       <FILE id="o8pYLe" name="PluginProcessor.cpp" compile="1" resource="0"
@@ -33,13 +34,12 @@
     <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
     <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
   </MODULES>
-  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"
-               JUCE_USE_WIN_WEBVIEW2="1" JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING="1"/>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
     <VS2026 targetFolder="Builds/VisualStudio2026">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug" targetName="EsQalpel" preprocessorDefs="JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1"/>
-        <CONFIGURATION isDebug="0" name="Release" targetName="EsQalpel" preprocessorDefs="JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1"/>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="EsQalpel" preprocessorDefs="JucePlugin_WantsMidiInput=1"/>
+        <CONFIGURATION isDebug="0" name="Release" targetName="EsQalpel" preprocessorDefs="JucePlugin_WantsMidiInput=1"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path="../JUCE/modules"/>

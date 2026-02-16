@@ -8,414 +8,209 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-static juce::String getUIHtml()
-{
-    return juce::String (R"ESQALPELUI(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: #111111;
-    color: #cccccc;
-    font-family: 'Consolas', 'Courier New', monospace;
-    width: 900px;
-    height: 600px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    user-select: none;
-  }
-
-  /* ── Spectrum canvas ──────────────────────────────────────────── */
-  #spectrumCanvas {
-    display: block;
-    flex-shrink: 0;
-    width: 900px;
-    height: 340px;
-    background: #0d0d0d;
-  }
-
-  /* ── Mode button bar ──────────────────────────────────────────── */
-  #modeBar {
-    display: flex;
-    gap: 4px;
-    padding: 6px 10px;
-    background: #1a1a1a;
-    border-top: 1px solid #2a2a2a;
-    border-bottom: 1px solid #2a2a2a;
-    flex-shrink: 0;
-  }
-
-  .mode-btn {
-    flex: 1;
-    padding: 5px 0;
-    background: #252525;
-    border: 1px solid #3a3a3a;
-    color: #888888;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    transition: background 0.12s, color 0.12s;
-  }
-  .mode-btn.active {
-    background: #1a3d70;
-    border-color: #3d6eb5;
-    color: #e0e8ff;
-  }
-  .mode-btn:hover:not(.active) { background: #2f2f2f; color: #aaa; }
-
-  /* ── Parameter area ───────────────────────────────────────────── */
-  #paramArea {
-    flex: 1;
-    padding: 10px 12px 8px;
-    overflow: hidden;
-  }
-
-  .mode-panel { display: none; }
-  .mode-panel.active {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 10px;
-    height: 100%;
-    align-items: flex-start;
-  }
-
-  .param {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    flex: 1;
-    min-width: 0;
-  }
-  .param label {
-    font-size: 10px;
-    color: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    white-space: nowrap;
-  }
-  .param.disabled label { opacity: 0.3; }
-
-  .param input[type=range] {
-    width: 100%;
-    accent-color: #3d6eb5;
-    cursor: pointer;
-    height: 18px;
-  }
-  .param input[type=range]:disabled {
-    opacity: 0.25;
-    cursor: not-allowed;
-  }
-
-  .param .value {
-    font-size: 12px;
-    color: #c0c8d0;
-    text-align: right;
-    min-height: 16px;
-  }
-  .param.disabled .value { opacity: 0.3; }
-</style>
-</head>
-<body>
-
-<canvas id="spectrumCanvas" width="900" height="340"></canvas>
-
-<div id="modeBar">
-  <button class="mode-btn active" data-mode="autosc">Auto SC</button>
-  <button class="mode-btn"        data-mode="midisc">MIDI SC</button>
-  <button class="mode-btn"        data-mode="naivesc">Naive SC</button>
-  <button class="mode-btn"        data-mode="midi">MIDI</button>
-</div>
-
-<div id="paramArea">
-
-  <!-- ── Auto SC ─────────────────────────────────────────────────── -->
-  <div class="mode-panel active" id="panel-autosc">
-    <div class="param">
-      <label>Harmonics</label>
-      <input type="range" min="1" max="8" step="1" value="4"
-             oninput="this.nextElementSibling.textContent = this.value">
-      <span class="value">4</span>
-    </div>
-    <div class="param">
-      <label>Max Depth</label>
-      <input type="range" min="-48" max="0" step="0.5" value="-18"
-             oninput="this.nextElementSibling.textContent = parseFloat(this.value).toFixed(1) + ' dB'">
-      <span class="value">-18.0 dB</span>
-    </div>
-    <div class="param">
-      <label>Threshold</label>
-      <input type="range" min="-80" max="0" step="1" value="-40"
-             oninput="this.nextElementSibling.textContent = this.value + ' dBFS'">
-      <span class="value">-40 dBFS</span>
-    </div>
-    <div class="param">
-      <label>Attack</label>
-      <input type="range" min="1" max="200" step="1" value="10"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">10 ms</span>
-    </div>
-    <div class="param">
-      <label>Release</label>
-      <input type="range" min="10" max="2000" step="10" value="100"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">100 ms</span>
-    </div>
-  </div>
-
-  <!-- ── MIDI SC ─────────────────────────────────────────────────── -->
-  <div class="mode-panel" id="panel-midisc">
-    <div class="param">
-      <label>Harmonics</label>
-      <input type="range" min="1" max="8" step="1" value="4"
-             oninput="this.nextElementSibling.textContent = this.value">
-      <span class="value">4</span>
-    </div>
-    <div class="param">
-      <label>Max Depth</label>
-      <input type="range" min="-48" max="0" step="0.5" value="-18"
-             oninput="this.nextElementSibling.textContent = parseFloat(this.value).toFixed(1) + ' dB'">
-      <span class="value">-18.0 dB</span>
-    </div>
-    <div class="param">
-      <label>Threshold</label>
-      <input type="range" min="-80" max="0" step="1" value="-40"
-             oninput="this.nextElementSibling.textContent = this.value + ' dBFS'">
-      <span class="value">-40 dBFS</span>
-    </div>
-    <div class="param">
-      <label>Attack</label>
-      <input type="range" min="1" max="200" step="1" value="10"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">10 ms</span>
-    </div>
-    <div class="param">
-      <label>Release</label>
-      <input type="range" min="10" max="2000" step="10" value="100"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">100 ms</span>
-    </div>
-  </div>
-
-  <!-- ── Naive SC ────────────────────────────────────────────────── -->
-  <div class="mode-panel" id="panel-naivesc">
-    <div class="param">
-      <label>Max Depth</label>
-      <input type="range" min="-48" max="0" step="0.5" value="-18"
-             oninput="this.nextElementSibling.textContent = parseFloat(this.value).toFixed(1) + ' dB'">
-      <span class="value">-18.0 dB</span>
-    </div>
-    <div class="param">
-      <label>Threshold</label>
-      <input type="range" min="-80" max="0" step="1" value="-40"
-             oninput="this.nextElementSibling.textContent = this.value + ' dBFS'">
-      <span class="value">-40 dBFS</span>
-    </div>
-    <div class="param">
-      <label>Attack</label>
-      <input type="range" min="1" max="200" step="1" value="10"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">10 ms</span>
-    </div>
-    <div class="param">
-      <label>Release</label>
-      <input type="range" min="10" max="2000" step="10" value="100"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">100 ms</span>
-    </div>
-  </div>
-
-  <!-- ── MIDI (threshold disabled) ───────────────────────────────── -->
-  <div class="mode-panel" id="panel-midi">
-    <div class="param">
-      <label>Harmonics</label>
-      <input type="range" min="1" max="8" step="1" value="4"
-             oninput="this.nextElementSibling.textContent = this.value">
-      <span class="value">4</span>
-    </div>
-    <div class="param">
-      <label>Max Depth</label>
-      <input type="range" min="-48" max="0" step="0.5" value="-18"
-             oninput="this.nextElementSibling.textContent = parseFloat(this.value).toFixed(1) + ' dB'">
-      <span class="value">-18.0 dB</span>
-    </div>
-    <div class="param disabled">
-      <label>Threshold</label>
-      <input type="range" min="-80" max="0" step="1" value="-40" disabled>
-      <span class="value">—</span>
-    </div>
-    <div class="param">
-      <label>Attack</label>
-      <input type="range" min="1" max="200" step="1" value="10"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">10 ms</span>
-    </div>
-    <div class="param">
-      <label>Release</label>
-      <input type="range" min="10" max="2000" step="10" value="100"
-             oninput="this.nextElementSibling.textContent = this.value + ' ms'">
-      <span class="value">100 ms</span>
-    </div>
-  </div>
-
-</div><!-- #paramArea -->
-
-<script>
-'use strict';
-
-// ── Constants ──────────────────────────────────────────────────────────────
-const NUM_BINS    = 1024;
-const SAMPLE_RATE = 44100;   // scaffold default; will be passed dynamically later
-const DB_TOP      = 0;
-const DB_BOTTOM   = -90;
-
-// ── State ──────────────────────────────────────────────────────────────────
-const inputMags = new Float32Array(NUM_BINS).fill(DB_BOTTOM);
-
-// ── Canvas setup ───────────────────────────────────────────────────────────
-const canvas = document.getElementById('spectrumCanvas');
-const ctx    = canvas.getContext('2d');
-const W      = canvas.width;    // 900
-const H      = canvas.height;   // 340
-
-// ── Frequency / amplitude mapping ─────────────────────────────────────────
-const LOG20   = Math.log10(20);
-const LOG20K  = Math.log10(20000);
-const LOGSPAN = LOG20K - LOG20;
-
-function freqToX (freq) {
-    return (Math.log10(Math.max(freq, 1.0)) - LOG20) / LOGSPAN * W;
-}
-
-function dbToY (db) {
-    return (DB_TOP - db) / (DB_TOP - DB_BOTTOM) * H;
-}
-
-// ── Spectrum render loop ───────────────────────────────────────────────────
-const FREQ_GRID   = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-const FREQ_LABELS = ['20', '50', '100', '200', '500', '1k', '2k', '5k', '10k', '20k'];
-const DB_GRID     = [0, -10, -20, -40, -60, -80];
-
-function drawSpectrum () {
-    // Background
-    ctx.fillStyle = '#0d0d0d';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.save();
-    ctx.font = '10px Consolas, monospace';
-
-    // dB horizontal grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    ctx.lineWidth   = 1;
-    ctx.fillStyle   = 'rgba(255,255,255,0.22)';
-    for (const db of DB_GRID) {
-        const y = dbToY(db);
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-        ctx.fillText(db + ' dB', 4, y - 2);
-    }
-
-    // Frequency vertical grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    ctx.fillStyle   = 'rgba(255,255,255,0.22)';
-    for (let i = 0; i < FREQ_GRID.length; ++i) {
-        const x = freqToX(FREQ_GRID[i]);
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, H);
-        ctx.stroke();
-        ctx.fillText(FREQ_LABELS[i], x + 3, H - 4);
-    }
-
-    // Input spectrum line
-    ctx.strokeStyle = 'rgba(100,200,255,0.85)';
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    let first = true;
-    for (let i = 1; i < NUM_BINS; ++i) {
-        const freq = i * (SAMPLE_RATE / 2) / NUM_BINS;
-        if (freq < 20 || freq > 20000) continue;
-        const x = freqToX(freq);
-        const y = dbToY(Math.max(inputMags[i], DB_BOTTOM));
-        if (first) { ctx.moveTo(x, y); first = false; }
-        else        { ctx.lineTo(x, y); }
-    }
-    ctx.stroke();
-
-    ctx.restore();
-
-    requestAnimationFrame(drawSpectrum);
-}
-
-// ── Called by C++ timer at ~30 Hz via evaluateJavascript ──────────────────
-function updateSpectra (data) {
-    if (data && data.input && data.input.length === NUM_BINS) {
-        for (let i = 0; i < NUM_BINS; ++i)
-            inputMags[i] = data.input[i];
-    }
-}
-
-// ── Mode switching ─────────────────────────────────────────────────────────
-document.querySelectorAll('.mode-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-        const mode = btn.dataset.mode;
-        document.querySelectorAll('.mode-btn').forEach(function (b) {
-            b.classList.toggle('active', b === btn);
-        });
-        document.querySelectorAll('.mode-panel').forEach(function (p) {
-            p.classList.toggle('active', p.id === 'panel-' + mode);
-        });
-    });
-});
-
-// ── Start render loop ──────────────────────────────────────────────────────
-requestAnimationFrame(drawSpectrum);
-</script>
-</body>
-</html>
-)ESQALPELUI");
-}
 
 //==============================================================================
+// SpectrumDisplay — pure JUCE Graphics, no web layer.
+//
+// Audio thread writes to the SpectrumAnalyser FIFOs in the processor.
+// Message thread calls update() from timerCallback(), which stores the
+// magnitude arrays and calls repaint(). paint() draws everything synchronously
+// on the message thread with no cross-thread data hazards.
+//==============================================================================
+class SpectrumDisplay : public juce::Component
+{
+public:
+    static constexpr int numBins = SpectrumAnalyser::numBins;
+
+    SpectrumDisplay()
+    {
+        setOpaque (true);
+        inputMags.fill (kFloorDB);
+        scMags   .fill (kFloorDB);
+        eqMags   .fill (0.f);
+        outMags  .fill (kFloorDB);
+    }
+
+    // Called from the message thread — copies magnitude data and triggers repaint.
+    void update (const float* input,  const float* sc,
+                 const float* eq,     const float* output,
+                 double sr) noexcept
+    {
+        std::copy (input,  input  + numBins, inputMags.data());
+        std::copy (sc,     sc     + numBins, scMags.data());
+        std::copy (eq,     eq     + numBins, eqMags.data());
+        std::copy (output, output + numBins, outMags.data());
+        sampleRate = sr;
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const float W = (float) getWidth();
+        const float H = (float) getHeight();
+
+        g.fillAll (juce::Colour (0xff0d0d0d));
+
+        g.setFont (juce::Font (10.f));
+
+        // ── dB horizontal grid lines ──────────────────────────────────────
+        const int dbLevels[] = { 0, -10, -20, -40, -60, -80 };
+        for (int db : dbLevels)
+        {
+            const float y = dbToY ((float) db, H);
+            g.setColour (juce::Colour (0x0dffffff));
+            g.drawHorizontalLine ((int) y, 0.f, W);
+            g.setColour (juce::Colour (0x38ffffff));
+            g.drawText (juce::String (db) + " dB",
+                        4, std::max (0, (int) y - 12), 55, 12,
+                        juce::Justification::left, false);
+        }
+
+        // ── Frequency vertical grid lines ─────────────────────────────────
+        const float       freqGrid[]   = { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000 };
+        const char* const freqLabels[] = { "20","50","100","200","500","1k","2k","5k","10k","20k" };
+        for (int i = 0; i < 10; ++i)
+        {
+            const float x = freqToX (freqGrid[i], W);
+            g.setColour (juce::Colour (0x0dffffff));
+            g.drawVerticalLine ((int) x, 0.f, H);
+            g.setColour (juce::Colour (0x38ffffff));
+            g.drawText (freqLabels[i], (int) x + 3, (int) H - 14, 40, 12,
+                        juce::Justification::left, false);
+        }
+
+        // ── Spectra (back → front) ────────────────────────────────────────
+        // EQ curve (green, thicker) — behind audio spectra so they read on top
+        drawSpecLine (g, eqMags.data(),    juce::Colour (0xe564ff78), 2.0f);
+        // Sidechain (orange)
+        drawSpecLine (g, scMags.data(),    juce::Colour (0xbfffa03c), 1.5f);
+        // Post-EQ output (pink)
+        drawSpecLine (g, outMags.data(),   juce::Colour (0xbfff64c8), 1.5f);
+        // Pre-EQ input (cyan) — most prominent, on top
+        drawSpecLine (g, inputMags.data(), juce::Colour (0xd964c8ff), 1.5f);
+    }
+
+private:
+    static constexpr float kFloorDB = SpectrumAnalyser::kFloorDB;
+
+    std::array<float, numBins> inputMags, scMags, eqMags, outMags;
+    double sampleRate = 44100.0;
+
+    void drawSpecLine (juce::Graphics& g, const float* mags,
+                       juce::Colour colour, float thickness) const
+    {
+        juce::Path path;
+        const float W = (float) getWidth();
+        const float H = (float) getHeight();
+        bool started = false;
+
+        for (int i = 1; i < numBins; ++i)
+        {
+            const auto freq = (float) (i * (sampleRate / 2.0) / numBins);
+            if (freq < 20.f || freq > 20000.f) continue;
+
+            const float x = freqToX (freq, W);
+            const float y = dbToY (std::max (mags[i], kFloorDB), H);
+
+            if (! started) { path.startNewSubPath (x, y); started = true; }
+            else             path.lineTo (x, y);
+        }
+
+        g.setColour (colour);
+        g.strokePath (path, juce::PathStrokeType (thickness));
+    }
+
+    static float freqToX (float freq, float W) noexcept
+    {
+        // Log-scale: 20 Hz → x=0, 20 kHz → x=W.
+        static const float log20   = std::log10 (20.f);
+        static const float logSpan = std::log10 (20000.f) - log20; // = 3.0
+        return (std::log10 (std::max (freq, 1.f)) - log20) / logSpan * W;
+    }
+
+    static float dbToY (float db, float H) noexcept
+    {
+        // 0 dBFS → top (y=0), −90 dBFS → bottom (y=H).
+        return (0.f - db) / (0.f - kFloorDB) * H;
+    }
+};
+
+//==============================================================================
+static const char* const kModeNames[4] = { "Auto SC", "MIDI SC", "Naive SC", "MIDI" };
+
 EsQalpelAudioProcessorEditor::EsQalpelAudioProcessorEditor (EsQalpelAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
-    using WBC = juce::WebBrowserComponent;
+    // ── Spectrum display ──────────────────────────────────────────────────────
+    spectrumDisplay = std::make_unique<SpectrumDisplay>();
+    addAndMakeVisible (*spectrumDisplay);
 
-    auto options = WBC::Options{}
-        .withBackend (WBC::Options::Backend::webview2)
-        .withWinWebView2Options (
-            WBC::Options::WinWebView2{}
-                .withUserDataFolder (
-                    juce::File::getSpecialLocation (juce::File::tempDirectory)
-                        .getChildFile ("EsQalpel_WebView")))
-        .withResourceProvider (
-            [] (const juce::String& url) -> std::optional<WBC::Resource>
-            {
-                if (url.isEmpty() || url == "/")
-                {
-                    auto html = getUIHtml();
-                    std::vector<std::byte> bytes;
-                    bytes.reserve ((size_t) html.getNumBytesAsUTF8());
-                    for (const char c : html.toStdString())
-                        bytes.push_back (static_cast<std::byte> (c));
-                    return WBC::Resource { std::move (bytes), "text/html" };
-                }
-                return std::nullopt;
-            });
+    // ── Mode buttons ──────────────────────────────────────────────────────────
+    for (int i = 0; i < 4; ++i)
+    {
+        auto& btn = modeButtons[i];
+        btn.setButtonText (kModeNames[i]);
+        btn.setClickingTogglesState (false);
+        btn.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff252525));
+        btn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff1a3d70));
+        btn.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xff888888));
+        btn.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffe0e8ff));
+        btn.onClick = [this, i] { setActiveMode (i); };
+        addAndMakeVisible (btn);
+    }
 
-    webView = std::make_unique<WBC> (options);
-    addAndMakeVisible (*webView);
+    // ── Parameter strips ──────────────────────────────────────────────────────
+    auto& apvts = audioProcessor.getAPVTS();
+
+    auto initStrip = [&] (Strip& s, const char* labelText, const juce::String& paramId)
+    {
+        s.label.setText (labelText, juce::dontSendNotification);
+        s.label.setFont (juce::Font (10.f));
+        s.label.setColour (juce::Label::textColourId, juce::Colour (0xff666666));
+        s.label.setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (s.label);
+
+        s.slider.setSliderStyle (juce::Slider::LinearHorizontal);
+        s.slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 20);
+        s.slider.setColour (juce::Slider::thumbColourId,             juce::Colour (0xff3d6eb5));
+        s.slider.setColour (juce::Slider::textBoxTextColourId,       juce::Colour (0xffc0c8d0));
+        s.slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff111111));
+        s.slider.setColour (juce::Slider::textBoxOutlineColourId,    juce::Colour (0x00000000));
+        addAndMakeVisible (s.slider);
+
+        s.att = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+            apvts, paramId, s.slider);
+    };
+
+    // Auto SC
+    initStrip (autoSC[0], "HARMONICS", "auto_harmonic_count");
+    initStrip (autoSC[1], "MAX DEPTH", "auto_max_depth");
+    initStrip (autoSC[2], "THRESHOLD", "auto_threshold");
+    initStrip (autoSC[3], "ATTACK",    "auto_attack");
+    initStrip (autoSC[4], "RELEASE",   "auto_release");
+
+    // MIDI SC
+    initStrip (midiSC[0], "HARMONICS", "midi_sc_harmonic_count");
+    initStrip (midiSC[1], "MAX DEPTH", "midi_sc_max_depth");
+    initStrip (midiSC[2], "THRESHOLD", "midi_sc_threshold");
+    initStrip (midiSC[3], "ATTACK",    "midi_sc_attack");
+    initStrip (midiSC[4], "RELEASE",   "midi_sc_release");
+
+    // Naive SC
+    initStrip (naiveSC[0], "MAX DEPTH", "naive_sc_max_depth");
+    initStrip (naiveSC[1], "THRESHOLD", "naive_sc_threshold");
+    initStrip (naiveSC[2], "ATTACK",    "naive_sc_attack");
+    initStrip (naiveSC[3], "RELEASE",   "naive_sc_release");
+
+    // MIDI only (no threshold parameter)
+    initStrip (midiOnly[0], "HARMONICS", "midi_harmonic_count");
+    initStrip (midiOnly[1], "MAX DEPTH", "midi_max_depth");
+    initStrip (midiOnly[2], "ATTACK",    "midi_attack");
+    initStrip (midiOnly[3], "RELEASE",   "midi_release");
+
+    // ── Initial state ─────────────────────────────────────────────────────────
+    setActiveMode (0);
     setSize (900, 600);
-    webView->goToURL (WBC::getResourceProviderRoot());
     startTimerHz (30);
 }
 
@@ -427,40 +222,97 @@ EsQalpelAudioProcessorEditor::~EsQalpelAudioProcessorEditor()
 //==============================================================================
 void EsQalpelAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    // Visible only during WebView2 init / if WebView2 is unavailable.
+    // Main background.
     g.fillAll (juce::Colour (0xff111111));
+
+    // Mode bar background and separator lines.
+    constexpr int kBarY = 340, kBarH = 36;
+    g.setColour (juce::Colour (0xff1a1a1a));
+    g.fillRect (0, kBarY, getWidth(), kBarH);
+    g.setColour (juce::Colour (0xff2a2a2a));
+    g.drawHorizontalLine (kBarY,         0.f, (float) getWidth());
+    g.drawHorizontalLine (kBarY + kBarH, 0.f, (float) getWidth());
 }
 
 void EsQalpelAudioProcessorEditor::resized()
 {
-    if (webView)
-        webView->setBounds (getLocalBounds());
+    constexpr int kSpecH    = 340;
+    constexpr int kBarH     = 36;
+    constexpr int kBtnPad   = 10;
+    constexpr int kBtnGap   = 4;
+    constexpr int kParamPad = 12;
+    constexpr int kStripGap = 10;
+    constexpr int kLabelH   = 14;
+    constexpr int kSliderH  = 24;
+
+    spectrumDisplay->setBounds (0, 0, getWidth(), kSpecH);
+
+    // Mode buttons — evenly spaced with small padding and gaps.
+    const int btnW = (getWidth() - 2 * kBtnPad - 3 * kBtnGap) / 4;
+    const int btnY = kSpecH + (kBarH - 24) / 2;
+    for (int i = 0; i < 4; ++i)
+        modeButtons[i].setBounds (kBtnPad + i * (btnW + kBtnGap), btnY, btnW, 24);
+
+    // Parameter strips — all laid out regardless of visibility.
+    const int paramTop   = kSpecH + kBarH + 10;
+    const int stripAreaW = getWidth() - 2 * kParamPad;
+
+    auto layoutStrips = [&] (Strip* strips, int count)
+    {
+        const int sw = (stripAreaW - (count - 1) * kStripGap) / count;
+        for (int i = 0; i < count; ++i)
+        {
+            const int x = kParamPad + i * (sw + kStripGap);
+            strips[i].label .setBounds (x, paramTop,                sw, kLabelH);
+            strips[i].slider.setBounds (x, paramTop + kLabelH + 4,  sw, kSliderH);
+        }
+    };
+
+    layoutStrips (autoSC,   5);
+    layoutStrips (midiSC,   5);
+    layoutStrips (naiveSC,  4);
+    layoutStrips (midiOnly, 4);
 }
 
 //==============================================================================
 void EsQalpelAudioProcessorEditor::timerCallback()
 {
-    if (!webView) return;
+    audioProcessor.getInputAnalyser()   .processIfAvailable();
+    audioProcessor.getSidechainAnalyser().processIfAvailable();
+    audioProcessor.getOutputAnalyser()  .processIfAvailable();
 
-    audioProcessor.getInputAnalyser().processIfAvailable();
+    std::array<float, SpectrumAnalyser::numBins> eqMags;
+    audioProcessor.getEQMagnitudes (eqMags.data(), SpectrumAnalyser::numBins,
+                                    audioProcessor.getSampleRate());
 
-    const auto js = "updateSpectra(" + buildSpectraJson() + ");";
-    webView->evaluateJavascript (js,
-        [] (juce::WebBrowserComponent::EvaluationResult) {});
+    spectrumDisplay->update (
+        audioProcessor.getInputAnalyser()   .getMagnitudes().data(),
+        audioProcessor.getSidechainAnalyser().getMagnitudes().data(),
+        eqMags.data(),
+        audioProcessor.getOutputAnalyser()  .getMagnitudes().data(),
+        audioProcessor.getSampleRate());
 }
 
-juce::String EsQalpelAudioProcessorEditor::buildSpectraJson() const
+//==============================================================================
+void EsQalpelAudioProcessorEditor::setActiveMode (int index)
 {
-    const auto& mags = audioProcessor.getInputAnalyser().getMagnitudes();
-    juce::String s;
-    s.preallocateBytes (8192);
-    s += "{\"input\":[";
-    for (int i = 0; i < SpectrumAnalyser::numBins; ++i)
+    activeMode = index;
+
+    for (int i = 0; i < 4; ++i)
+        modeButtons[i].setToggleState (i == index, juce::dontSendNotification);
+
+    for (int i = 0; i < 5; ++i)
     {
-        s += juce::String (mags[i], 2);
-        if (i < SpectrumAnalyser::numBins - 1)
-            s += ',';
+        autoSC[i].label .setVisible (index == 0);
+        autoSC[i].slider.setVisible (index == 0);
+        midiSC[i].label .setVisible (index == 1);
+        midiSC[i].slider.setVisible (index == 1);
     }
-    s += "]}";
-    return s;
+    for (int i = 0; i < 4; ++i)
+    {
+        naiveSC[i] .label .setVisible (index == 2);
+        naiveSC[i] .slider.setVisible (index == 2);
+        midiOnly[i].label .setVisible (index == 3);
+        midiOnly[i].slider.setVisible (index == 3);
+    }
 }

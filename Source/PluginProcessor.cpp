@@ -15,17 +15,71 @@ EsQalpelAudioProcessor::EsQalpelAudioProcessor()
      : AudioProcessor (BusesProperties()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                       .withInput  ("Input",     juce::AudioChannelSet::stereo(), true)
                       #endif
-                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                       .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)
+                       .withOutput ("Output",    juce::AudioChannelSet::stereo(), true)
                      #endif
-                       )
+                       ),
+       apvts (*this, nullptr, "Parameters", createParameterLayout())
 #endif
 {
 }
 
 EsQalpelAudioProcessor::~EsQalpelAudioProcessor()
 {
+}
+
+//==============================================================================
+juce::AudioProcessorValueTreeState::ParameterLayout EsQalpelAudioProcessor::createParameterLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+    // ── Auto Sidechain ────────────────────────────────────────────────────────
+    layout.add (std::make_unique<juce::AudioParameterInt>   ("auto_harmonic_count", "Auto SC Harmonics",
+                                                              1, 8, 4));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("auto_max_depth", "Auto SC Max Depth",
+                                                              juce::NormalisableRange<float> (-48.0f, 0.0f), -18.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("auto_threshold", "Auto SC Threshold",
+                                                              juce::NormalisableRange<float> (-80.0f, 0.0f), -40.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("auto_attack", "Auto SC Attack",
+                                                              juce::NormalisableRange<float> (1.0f, 200.0f), 10.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("auto_release", "Auto SC Release",
+                                                              juce::NormalisableRange<float> (10.0f, 2000.0f), 100.0f));
+
+    // ── MIDI Sidechain ────────────────────────────────────────────────────────
+    layout.add (std::make_unique<juce::AudioParameterInt>   ("midi_sc_harmonic_count", "MIDI SC Harmonics",
+                                                              1, 8, 4));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("midi_sc_max_depth", "MIDI SC Max Depth",
+                                                              juce::NormalisableRange<float> (-48.0f, 0.0f), -18.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("midi_sc_threshold", "MIDI SC Threshold",
+                                                              juce::NormalisableRange<float> (-80.0f, 0.0f), -40.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("midi_sc_attack", "MIDI SC Attack",
+                                                              juce::NormalisableRange<float> (1.0f, 200.0f), 10.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("midi_sc_release", "MIDI SC Release",
+                                                              juce::NormalisableRange<float> (10.0f, 2000.0f), 100.0f));
+
+    // ── Naive Sidechain ───────────────────────────────────────────────────────
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("naive_sc_max_depth", "Naive SC Max Depth",
+                                                              juce::NormalisableRange<float> (-48.0f, 0.0f), -18.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("naive_sc_threshold", "Naive SC Threshold",
+                                                              juce::NormalisableRange<float> (-80.0f, 0.0f), -40.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("naive_sc_attack", "Naive SC Attack",
+                                                              juce::NormalisableRange<float> (1.0f, 200.0f), 10.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("naive_sc_release", "Naive SC Release",
+                                                              juce::NormalisableRange<float> (10.0f, 2000.0f), 100.0f));
+
+    // ── MIDI only ─────────────────────────────────────────────────────────────
+    layout.add (std::make_unique<juce::AudioParameterInt>   ("midi_harmonic_count", "MIDI Harmonics",
+                                                              1, 8, 4));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("midi_max_depth", "MIDI Max Depth",
+                                                              juce::NormalisableRange<float> (-48.0f, 0.0f), -18.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("midi_attack", "MIDI Attack",
+                                                              juce::NormalisableRange<float> (1.0f, 200.0f), 10.0f));
+    layout.add (std::make_unique<juce::AudioParameterFloat> ("midi_release", "MIDI Release",
+                                                              juce::NormalisableRange<float> (10.0f, 2000.0f), 100.0f));
+
+    return layout;
 }
 
 //==============================================================================
@@ -79,23 +133,28 @@ int EsQalpelAudioProcessor::getCurrentProgram()
 
 void EsQalpelAudioProcessor::setCurrentProgram (int index)
 {
+    juce::ignoreUnused (index);
 }
 
 const juce::String EsQalpelAudioProcessor::getProgramName (int index)
 {
+    juce::ignoreUnused (index);
     return {};
 }
 
 void EsQalpelAudioProcessor::changeProgramName (int index, const juce::String& newName)
 {
+    juce::ignoreUnused (index, newName);
 }
 
 //==============================================================================
 void EsQalpelAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    juce::ignoreUnused (sampleRate);
+    currentSampleRate = sampleRate;
     monoMixBuffer.setSize (1, samplesPerBlock, false, true, false);
     inputAnalyser.reset();
+    sidechainAnalyser.reset();
+    outputAnalyser.reset();
 }
 
 void EsQalpelAudioProcessor::releaseResources()
@@ -111,19 +170,23 @@ bool EsQalpelAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
     juce::ignoreUnused (layouts);
     return true;
   #else
-    // This is the place where you check if the layout is supported.
-    // In this template code we only support mono or stereo.
-    // Some plugin hosts, such as certain GarageBand versions, will only
-    // load plugins that support stereo bus layouts.
+    // Main output must be mono or stereo.
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
-    // This checks if the input layout matches the output layout
+    // Main input must match main output.
    #if ! JucePlugin_IsSynth
     if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
         return false;
    #endif
+
+    // Sidechain bus may be disabled, mono, or stereo — nothing else.
+    const auto& sc = layouts.getChannelSet (true, 1);
+    if (!sc.isDisabled()
+        && sc != juce::AudioChannelSet::mono()
+        && sc != juce::AudioChannelSet::stereo())
+        return false;
 
     return true;
   #endif
@@ -132,31 +195,70 @@ bool EsQalpelAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
 
 void EsQalpelAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
-    juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
-    const int numIn  = getTotalNumInputChannels();
-    const int numOut = getTotalNumOutputChannels();
-    const int n      = buffer.getNumSamples();
+    // ── MIDI note tracking ────────────────────────────────────────────────────
+    for (const auto meta : midiMessages)
+    {
+        const auto msg = meta.getMessage();
+        if (msg.isNoteOn())  activeNotes.set   ((size_t) msg.getNoteNumber());
+        if (msg.isNoteOff()) activeNotes.reset ((size_t) msg.getNoteNumber());
+    }
 
-    for (int i = numIn; i < numOut; ++i)
+    const int numTotalOut = getTotalNumOutputChannels();
+    const int n           = buffer.getNumSamples();
+
+    // ── (1) Pre-EQ main input capture ─────────────────────────────────────────
+    auto mainBus   = getBusBuffer (buffer, true, 0);
+    const int numMainIn = mainBus.getNumChannels();
+
+    // Clear any extra output channels (mono-in → stereo-out, etc.)
+    for (int i = numMainIn; i < numTotalOut; ++i)
         buffer.clear (i, 0, n);
 
-    if (numIn > 0)
+    if (numMainIn > 0)
     {
-        // Mono-sum all input channels into monoMixBuffer and push to analyser.
         monoMixBuffer.clear();
-        const float scale = 1.0f / (float) numIn;
-        for (int ch = 0; ch < numIn; ++ch)
-            monoMixBuffer.addFrom (0, 0, buffer, ch, 0, n, scale);
+        const float mainScale = 1.0f / (float) numMainIn;
+        for (int ch = 0; ch < numMainIn; ++ch)
+            monoMixBuffer.addFrom (0, 0, mainBus, ch, 0, n, mainScale);
         inputAnalyser.pushSamples (monoMixBuffer.getReadPointer (0), n);
     }
+
+    // ── (2) Sidechain capture ──────────────────────────────────────────────────
+    auto scBuffer      = getBusBuffer (buffer, true, 1);
+    const int scChannels = scBuffer.getNumChannels();
+    if (scChannels > 0)
+    {
+        monoMixBuffer.clear();
+        const float scScale = 1.0f / (float) scChannels;
+        for (int ch = 0; ch < scChannels; ++ch)
+            monoMixBuffer.addFrom (0, 0, scBuffer, ch, 0, n, scScale);
+        sidechainAnalyser.pushSamples (monoMixBuffer.getReadPointer (0), n);
+    }
+
+    // ── (3) Post-EQ output capture (same as input until filters are implemented) ──
+    if (numMainIn > 0)
+    {
+        monoMixBuffer.clear();
+        const float mainScale = 1.0f / (float) numMainIn;
+        for (int ch = 0; ch < numMainIn; ++ch)
+            monoMixBuffer.addFrom (0, 0, mainBus, ch, 0, n, mainScale);
+        outputAnalyser.pushSamples (monoMixBuffer.getReadPointer (0), n);
+    }
+}
+
+//==============================================================================
+void EsQalpelAudioProcessor::getEQMagnitudes (float* output, int numBins, double /*sampleRate*/) const noexcept
+{
+    // Scaffold stub: flat EQ at 0 dB until IIR filters are implemented.
+    juce::FloatVectorOperations::fill (output, 0.0f, numBins);
 }
 
 //==============================================================================
 bool EsQalpelAudioProcessor::hasEditor() const
 {
-    return true; // (change this to false if you choose to not supply an editor)
+    return true;
 }
 
 juce::AudioProcessorEditor* EsQalpelAudioProcessor::createEditor()
@@ -167,15 +269,16 @@ juce::AudioProcessorEditor* EsQalpelAudioProcessor::createEditor()
 //==============================================================================
 void EsQalpelAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    copyXmlToBinary (*xml, destData);
 }
 
 void EsQalpelAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
+    std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
+    if (xml && xml->hasTagName (apvts.state.getType()))
+        apvts.replaceState (juce::ValueTree::fromXml (*xml));
 }
 
 //==============================================================================
