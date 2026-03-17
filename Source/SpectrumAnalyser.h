@@ -60,20 +60,22 @@ public:
         // Apply Hann window to the real samples.
         juce::FloatVectorOperations::multiply (fftBuffer.data(), hannWindow.data(), fftSize);
 
-        // Zero the imaginary half (fftBuffer[fftSize .. 2*fftSize-1]).
+        // Zero the upper half used as workspace by the FFT.
         juce::FloatVectorOperations::fill (fftBuffer.data() + fftSize, 0.0f, fftSize);
 
-        // In-place forward FFT.
-        // Output layout: fftBuffer[2*k] = Re(bin k), fftBuffer[2*k+1] = Im(bin k).
-        forwardFFT.performRealOnlyForwardTransform (fftBuffer.data(), true);
+        // In-place forward FFT → fftBuffer[0..numBins-1] contains linear magnitudes.
+        forwardFFT.performFrequencyOnlyForwardTransform (fftBuffer.data());
 
-        // Convert to dBFS magnitudes.
+        // Convert to dBFS magnitudes with temporal EMA smoothing.
+        // Normalise by fftSize/2 (one-sided convention + Hann coherent gain of 0.5).
+        // kDecay controls how much of the previous frame is retained (0 = no smoothing).
+        static constexpr float kDecay    = 0.70f;
+        static constexpr float kNormFact = 2.0f / (float) fftSize;
         for (int i = 0; i < numBins; ++i)
         {
-            const float re  = fftBuffer[2 * i];
-            const float im  = fftBuffer[2 * i + 1];
-            const float mag = std::sqrt (re * re + im * im) / (float) fftSize;
-            magnitudes[i]   = juce::Decibels::gainToDecibels (mag, kFloorDB);
+            const float mag = fftBuffer[i] * kNormFact;
+            const float db  = juce::Decibels::gainToDecibels (mag, kFloorDB);
+            magnitudes[i]   = kDecay * magnitudes[i] + (1.0f - kDecay) * db;
         }
 
         return true;

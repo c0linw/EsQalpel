@@ -10,37 +10,27 @@
 #include "PluginEditor.h"
 
 //==============================================================================
-// SpectrumDisplay — pure JUCE Graphics, no web layer.
+// GainReductionDisplay — shows the per-frequency gain change applied by the EQ.
 //
-// Audio thread writes to the SpectrumAnalyser FIFOs in the processor.
-// Message thread calls update() from timerCallback(), which stores the
-// magnitude arrays and calls repaint(). paint() draws everything synchronously
-// on the message thread with no cross-thread data hazards.
+// 0 dB (centre) = no processing. Negative = cut. Positive = boost.
+// Updated from the message thread at 30 Hz via timerCallback().
 //==============================================================================
-class SpectrumDisplay : public juce::Component
+class GainReductionDisplay : public juce::Component
 {
 public:
     static constexpr int numBins = SpectrumAnalyser::numBins;
 
-    SpectrumDisplay()
+    GainReductionDisplay()
     {
         setOpaque (true);
-        inputMags.fill (kFloorDB);
-        scMags   .fill (kFloorDB);
-        eqMags   .fill (0.f);
-        outMags  .fill (kFloorDB);
+        eqMags.fill (0.f);
     }
 
-    // Called from the message thread — copies magnitude data and triggers repaint.
-    void update (const float* input,  const float* sc,
-                 const float* eq,     const float* output,
-                 double sr) noexcept
+    // Called from the message thread.
+    void update (const float* eq, int count) noexcept
     {
-        std::copy (input,  input  + numBins, inputMags.data());
-        std::copy (sc,     sc     + numBins, scMags.data());
-        std::copy (eq,     eq     + numBins, eqMags.data());
-        std::copy (output, output + numBins, outMags.data());
-        sampleRate = sr;
+        jassert (count <= numBins);
+        std::copy (eq, eq + count, eqMags.data());
         repaint();
     }
 
@@ -50,19 +40,20 @@ public:
         const float H = (float) getHeight();
 
         g.fillAll (juce::Colour (0xff0d0d0d));
-
         g.setFont (juce::Font (10.f));
 
         // ── dB horizontal grid lines ──────────────────────────────────────
-        const int dbLevels[] = { 0, -10, -20, -40, -60, -80 };
+        const int dbLevels[] = { 24, 18, 12, 6, 0, -6, -12, -18, -24 };
         for (int db : dbLevels)
         {
             const float y = dbToY ((float) db, H);
-            g.setColour (juce::Colour (0x0dffffff));
+            // 0 dB reference is slightly brighter — the "no processing" baseline.
+            g.setColour (db == 0 ? juce::Colour (0x40ffffff) : juce::Colour (0x0dffffff));
             g.drawHorizontalLine ((int) y, 0.f, W);
             g.setColour (juce::Colour (0x38ffffff));
+            const int textY = (y < 12.f) ? (int) y + 2 : std::max (0, (int) y - 12);
             g.drawText (juce::String (db) + " dB",
-                        4, std::max (0, (int) y - 12), 55, 12,
+                        4, textY, 55, 12,
                         juce::Justification::left, false);
         }
 
@@ -79,50 +70,42 @@ public:
                         juce::Justification::left, false);
         }
 
-        // ── Spectra (back → front) ────────────────────────────────────────
-        // EQ curve (green, thicker) — behind audio spectra so they read on top
-        drawSpecLine (g, eqMags.data(),    juce::Colour (0xe564ff78), 2.0f);
-        // Sidechain (orange)
-        drawSpecLine (g, scMags.data(),    juce::Colour (0xbfffa03c), 1.5f);
-        // Post-EQ output (pink)
-        drawSpecLine (g, outMags.data(),   juce::Colour (0xbfff64c8), 1.5f);
-        // Pre-EQ input (cyan) — most prominent, on top
-        drawSpecLine (g, inputMags.data(), juce::Colour (0xd964c8ff), 1.5f);
-    }
-
-private:
-    static constexpr float kFloorDB = SpectrumAnalyser::kFloorDB;
-
-    std::array<float, numBins> inputMags, scMags, eqMags, outMags;
-    double sampleRate = 44100.0;
-
-    void drawSpecLine (juce::Graphics& g, const float* mags,
-                       juce::Colour colour, float thickness) const
-    {
+        // ── Gain reduction curve ───────────────────────────────────────────
+        // White line: sits flat at 0 dB when idle, dips below on cuts,
+        // rises above on boosts.
         juce::Path path;
-        const float W = (float) getWidth();
-        const float H = (float) getHeight();
         bool started = false;
+        const double sr = audioProcessor != nullptr
+                              ? audioProcessor->getSampleRate()
+                              : 44100.0;
 
         for (int i = 1; i < numBins; ++i)
         {
-            const auto freq = (float) (i * (sampleRate / 2.0) / numBins);
+            const float freq = (float) (i * (sr / 2.0) / numBins);
             if (freq < 20.f || freq > 20000.f) continue;
 
             const float x = freqToX (freq, W);
-            const float y = dbToY (std::max (mags[i], kFloorDB), H);
+            const float y = dbToY (juce::jlimit (kDisplayFloor, kDisplayTop, eqMags[i]), H);
 
             if (! started) { path.startNewSubPath (x, y); started = true; }
             else             path.lineTo (x, y);
         }
 
-        g.setColour (colour);
-        g.strokePath (path, juce::PathStrokeType (thickness));
+        g.setColour (juce::Colour (0xd9ffffff));
+        g.strokePath (path, juce::PathStrokeType (1.5f));
     }
+
+    // Processor pointer — needed only to read sample rate for bin→Hz conversion.
+    EsQalpelAudioProcessor* audioProcessor = nullptr;
+
+private:
+    static constexpr float kDisplayTop   =  24.f;
+    static constexpr float kDisplayFloor = -24.f;
+
+    std::array<float, numBins> eqMags;
 
     static float freqToX (float freq, float W) noexcept
     {
-        // Log-scale: 20 Hz → x=0, 20 kHz → x=W.
         static const float log20   = std::log10 (20.f);
         static const float logSpan = std::log10 (20000.f) - log20; // = 3.0
         return (std::log10 (std::max (freq, 1.f)) - log20) / logSpan * W;
@@ -130,8 +113,8 @@ private:
 
     static float dbToY (float db, float H) noexcept
     {
-        // 0 dBFS → top (y=0), −90 dBFS → bottom (y=H).
-        return (0.f - db) / (0.f - kFloorDB) * H;
+        // +24 dB → top (y=0),  0 dB → centre,  −24 dB → bottom (y=H).
+        return (kDisplayTop - db) / (kDisplayTop - kDisplayFloor) * H;
     }
 };
 
@@ -141,9 +124,10 @@ static const char* const kModeNames[4] = { "Auto SC", "MIDI SC", "Naive SC", "MI
 EsQalpelAudioProcessorEditor::EsQalpelAudioProcessorEditor (EsQalpelAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
-    // ── Spectrum display ──────────────────────────────────────────────────────
-    spectrumDisplay = std::make_unique<SpectrumDisplay>();
-    addAndMakeVisible (*spectrumDisplay);
+    // ── Gain reduction display ────────────────────────────────────────────────
+    grDisplay = std::make_unique<GainReductionDisplay>();
+    grDisplay->audioProcessor = &p;
+    addAndMakeVisible (*grDisplay);
 
     // ── Mode buttons ──────────────────────────────────────────────────────────
     for (int i = 0; i < 4; ++i)
@@ -210,7 +194,7 @@ EsQalpelAudioProcessorEditor::EsQalpelAudioProcessorEditor (EsQalpelAudioProcess
 
     // ── Initial state ─────────────────────────────────────────────────────────
     setActiveMode (0);
-    setSize (900, 600);
+    setSize (900, 440);
     startTimerHz (30);
 }
 
@@ -222,21 +206,20 @@ EsQalpelAudioProcessorEditor::~EsQalpelAudioProcessorEditor()
 //==============================================================================
 void EsQalpelAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    // Main background.
     g.fillAll (juce::Colour (0xff111111));
 
     // Mode bar background and separator lines.
-    constexpr int kBarY = 340, kBarH = 36;
+    constexpr int kSpecH = 300, kBarH = 36;
     g.setColour (juce::Colour (0xff1a1a1a));
-    g.fillRect (0, kBarY, getWidth(), kBarH);
+    g.fillRect (0, kSpecH, getWidth(), kBarH);
     g.setColour (juce::Colour (0xff2a2a2a));
-    g.drawHorizontalLine (kBarY,         0.f, (float) getWidth());
-    g.drawHorizontalLine (kBarY + kBarH, 0.f, (float) getWidth());
+    g.drawHorizontalLine (kSpecH,         0.f, (float) getWidth());
+    g.drawHorizontalLine (kSpecH + kBarH, 0.f, (float) getWidth());
 }
 
 void EsQalpelAudioProcessorEditor::resized()
 {
-    constexpr int kSpecH    = 340;
+    constexpr int kSpecH    = 300;
     constexpr int kBarH     = 36;
     constexpr int kBtnPad   = 10;
     constexpr int kBtnGap   = 4;
@@ -245,9 +228,9 @@ void EsQalpelAudioProcessorEditor::resized()
     constexpr int kLabelH   = 14;
     constexpr int kSliderH  = 24;
 
-    spectrumDisplay->setBounds (0, 0, getWidth(), kSpecH);
+    grDisplay->setBounds (0, 0, getWidth(), kSpecH);
 
-    // Mode buttons — evenly spaced with small padding and gaps.
+    // Mode buttons — evenly spaced inside the mode bar.
     const int btnW = (getWidth() - 2 * kBtnPad - 3 * kBtnGap) / 4;
     const int btnY = kSpecH + (kBarH - 24) / 2;
     for (int i = 0; i < 4; ++i)
@@ -263,8 +246,8 @@ void EsQalpelAudioProcessorEditor::resized()
         for (int i = 0; i < count; ++i)
         {
             const int x = kParamPad + i * (sw + kStripGap);
-            strips[i].label .setBounds (x, paramTop,                sw, kLabelH);
-            strips[i].slider.setBounds (x, paramTop + kLabelH + 4,  sw, kSliderH);
+            strips[i].label .setBounds (x, paramTop,               sw, kLabelH);
+            strips[i].slider.setBounds (x, paramTop + kLabelH + 4, sw, kSliderH);
         }
     };
 
@@ -277,20 +260,10 @@ void EsQalpelAudioProcessorEditor::resized()
 //==============================================================================
 void EsQalpelAudioProcessorEditor::timerCallback()
 {
-    audioProcessor.getInputAnalyser()   .processIfAvailable();
-    audioProcessor.getSidechainAnalyser().processIfAvailable();
-    audioProcessor.getOutputAnalyser()  .processIfAvailable();
-
     std::array<float, SpectrumAnalyser::numBins> eqMags;
     audioProcessor.getEQMagnitudes (eqMags.data(), SpectrumAnalyser::numBins,
                                     audioProcessor.getSampleRate());
-
-    spectrumDisplay->update (
-        audioProcessor.getInputAnalyser()   .getMagnitudes().data(),
-        audioProcessor.getSidechainAnalyser().getMagnitudes().data(),
-        eqMags.data(),
-        audioProcessor.getOutputAnalyser()  .getMagnitudes().data(),
-        audioProcessor.getSampleRate());
+    grDisplay->update (eqMags.data(), SpectrumAnalyser::numBins);
 }
 
 //==============================================================================

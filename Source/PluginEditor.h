@@ -11,11 +11,9 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
-class SpectrumDisplay; // Defined in PluginEditor.cpp
+class GainReductionDisplay; // Defined in PluginEditor.cpp
 
 //==============================================================================
-/**
-*/
 class EsQalpelAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::Timer
 {
@@ -44,7 +42,7 @@ private:
     //==============================================================================
     EsQalpelAudioProcessor& audioProcessor;
 
-    std::unique_ptr<SpectrumDisplay> spectrumDisplay;
+    std::unique_ptr<GainReductionDisplay> grDisplay;
 
     juce::TextButton modeButtons[4];
     int              activeMode { 0 };
