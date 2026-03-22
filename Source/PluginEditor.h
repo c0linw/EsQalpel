@@ -52,5 +52,7 @@ private:
     Strip naiveSC[4];   // maxDepth, threshold, attack, release
     Strip midiOnly[4];  // harmonics, maxDepth, attack, release
 
+    juce::Label cpuLabel;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EsQalpelAudioProcessorEditor)
 };

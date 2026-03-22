@@ -10,6 +10,7 @@
 
 #include <JuceHeader.h>
 #include "SpectrumAnalyser.h"
+#include "AutoSCProcessor.h"
 #include <bitset>
 
 //==============================================================================
@@ -64,6 +65,10 @@ public:
 
     void getEQMagnitudes (float* output, int numBins, double sampleRate) const noexcept;
 
+    // Fraction of the audio buffer period spent in processBlock (0.0–1.0+).
+    // Exponentially smoothed; safe to read from any thread.
+    float getCpuLoad() const noexcept { return cpuLoad.load (std::memory_order_relaxed); }
+
 private:
     //==============================================================================
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -73,8 +78,11 @@ private:
     SpectrumAnalyser         outputAnalyser;
     juce::AudioBuffer<float> monoMixBuffer;
 
+    AutoSCProcessor          autoSCProc;
+
     std::bitset<128>         activeNotes;
     double                   currentSampleRate { 44100.0 };
+    std::atomic<float>       cpuLoad          { 0.0f };
 
     juce::AudioProcessorValueTreeState apvts;
 

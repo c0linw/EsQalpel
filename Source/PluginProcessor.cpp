@@ -35,6 +35,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout EsQalpelAudioProcessor::crea
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
+    // ── Active mode ───────────────────────────────────────────────────────────
+    // 0 = Auto Sidechain, 1 = MIDI Sidechain, 2 = Naive Sidechain, 3 = MIDI
+    layout.add (std::make_unique<juce::AudioParameterInt> ("mode", "Mode", 0, 3, 0));
+
     // ── Auto Sidechain ────────────────────────────────────────────────────────
     layout.add (std::make_unique<juce::AudioParameterInt>   ("auto_harmonic_count", "Auto SC Harmonics",
                                                               1, 8, 4));
@@ -155,6 +159,7 @@ void EsQalpelAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     inputAnalyser.reset();
     sidechainAnalyser.reset();
     outputAnalyser.reset();
+    autoSCProc.prepare (sampleRate, samplesPerBlock);
 }
 
 void EsQalpelAudioProcessor::releaseResources()
@@ -195,6 +200,7 @@ bool EsQalpelAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
 
 void EsQalpelAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
+    const double blockStartMs = juce::Time::getMillisecondCounterHiRes();
     juce::ScopedNoDenormals noDenormals;
 
     // ── MIDI note tracking ────────────────────────────────────────────────────
@@ -237,7 +243,23 @@ void EsQalpelAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         sidechainAnalyser.pushSamples (monoMixBuffer.getReadPointer (0), n);
     }
 
-    // ── (3) Post-EQ output capture (same as input until filters are implemented) ──
+    // ── (2b) Auto Sidechain processing ────────────────────────────────────────
+    // monoMixBuffer still holds the sidechain mono mix from step (2).
+    const int mode = static_cast<int> (*apvts.getRawParameterValue ("mode"));
+    if (mode == 0 && scChannels > 0)
+    {
+        autoSCProc.process (
+            mainBus,
+            monoMixBuffer.getReadPointer (0),
+            n,
+            static_cast<int> (*apvts.getRawParameterValue ("auto_harmonic_count")),
+            *apvts.getRawParameterValue ("auto_max_depth"),
+            *apvts.getRawParameterValue ("auto_threshold"),
+            *apvts.getRawParameterValue ("auto_attack"),
+            *apvts.getRawParameterValue ("auto_release"));
+    }
+
+    // ── (3) Post-EQ output capture ────────────────────────────────────────────
     if (numMainIn > 0)
     {
         monoMixBuffer.clear();
@@ -246,12 +268,28 @@ void EsQalpelAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             monoMixBuffer.addFrom (0, 0, mainBus, ch, 0, n, mainScale);
         outputAnalyser.pushSamples (monoMixBuffer.getReadPointer (0), n);
     }
+
+    // ── CPU load measurement ──────────────────────────────────────────────────
+    const double bufferMs  = (double) buffer.getNumSamples() / currentSampleRate * 1000.0;
+    const double elapsedMs = juce::Time::getMillisecondCounterHiRes() - blockStartMs;
+    const float  loadRaw   = (float) (elapsedMs / bufferMs);
+    // Exponential moving average — weight new reading at ~10 %.
+    cpuLoad.store (0.1f * loadRaw + 0.9f * cpuLoad.load (std::memory_order_relaxed),
+                   std::memory_order_relaxed);
 }
 
 //==============================================================================
-void EsQalpelAudioProcessor::getEQMagnitudes (float* output, int numBins, double /*sampleRate*/) const noexcept
+void EsQalpelAudioProcessor::getEQMagnitudes (float* output, int numBins, double sampleRate) const noexcept
 {
-    // Scaffold stub: flat EQ at 0 dB until IIR filters are implemented.
+    const int mode = static_cast<int> (*apvts.getRawParameterValue ("mode"));
+
+    if (mode == 0)
+    {
+        autoSCProc.getEQMagnitudes (output, numBins, sampleRate);
+        return;
+    }
+
+    // Other modes not yet implemented — flat curve.
     juce::FloatVectorOperations::fill (output, 0.0f, numBins);
 }
 

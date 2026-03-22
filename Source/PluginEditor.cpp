@@ -26,11 +26,15 @@ public:
         eqMags.fill (0.f);
     }
 
-    // Called from the message thread.
+    // Called from the message thread at 30 Hz.
+    // EMA smoothing (α ≈ 0.35) damps frame-to-frame variation in notch depth
+    // without adding noticeable lag at display rate.
     void update (const float* eq, int count) noexcept
     {
         jassert (count <= numBins);
-        std::copy (eq, eq + count, eqMags.data());
+        static constexpr float kAlpha = 0.35f;
+        for (int i = 0; i < count; ++i)
+            eqMags[i] = kAlpha * eq[i] + (1.0f - kAlpha) * eqMags[i];
         repaint();
     }
 
@@ -192,8 +196,15 @@ EsQalpelAudioProcessorEditor::EsQalpelAudioProcessorEditor (EsQalpelAudioProcess
     initStrip (midiOnly[2], "ATTACK",    "midi_attack");
     initStrip (midiOnly[3], "RELEASE",   "midi_release");
 
-    // ── Initial state ─────────────────────────────────────────────────────────
-    setActiveMode (0);
+    // ── CPU label ─────────────────────────────────────────────────────────────
+    cpuLabel.setFont (juce::Font (10.f));
+    cpuLabel.setColour (juce::Label::textColourId, juce::Colour (0xff555555));
+    cpuLabel.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (cpuLabel);
+
+    // ── Initial state — restore persisted mode from APVTS ────────────────────
+    const int savedMode = static_cast<int> (*audioProcessor.getAPVTS().getRawParameterValue ("mode"));
+    setActiveMode (savedMode);
     setSize (900, 440);
     startTimerHz (30);
 }
@@ -255,6 +266,9 @@ void EsQalpelAudioProcessorEditor::resized()
     layoutStrips (midiSC,   5);
     layoutStrips (naiveSC,  4);
     layoutStrips (midiOnly, 4);
+
+    // CPU label — bottom-right corner.
+    cpuLabel.setBounds (getWidth() - 80, getHeight() - 16, 76, 14);
 }
 
 //==============================================================================
@@ -264,6 +278,10 @@ void EsQalpelAudioProcessorEditor::timerCallback()
     audioProcessor.getEQMagnitudes (eqMags.data(), SpectrumAnalyser::numBins,
                                     audioProcessor.getSampleRate());
     grDisplay->update (eqMags.data(), SpectrumAnalyser::numBins);
+
+    const float load = audioProcessor.getCpuLoad();
+    cpuLabel.setText ("CPU: " + juce::String (load * 100.0f, 1) + "%",
+                      juce::dontSendNotification);
 }
 
 //==============================================================================
@@ -273,6 +291,10 @@ void EsQalpelAudioProcessorEditor::setActiveMode (int index)
 
     for (int i = 0; i < 4; ++i)
         modeButtons[i].setToggleState (i == index, juce::dontSendNotification);
+
+    if (auto* p = dynamic_cast<juce::AudioParameterInt*> (
+            audioProcessor.getAPVTS().getParameter ("mode")))
+        p->setValueNotifyingHost (p->convertTo0to1 (index));
 
     for (int i = 0; i < 5; ++i)
     {
